@@ -24,11 +24,8 @@ matplotlib.rc('text', usetex=True)
 matplotlib.rcParams['pdf.fonttype'] = 42
 matplotlib.rcParams['ps.fonttype'] = 42
 
-def Test():
-    return 1 
-
-if __name__ =="__main__":
-    root_dir = os.path.join(os.getcwd(),'example_dataset')  # root_dir where all dataset has been located 
+def Run_test():
+    root_dir = os.path.join(os.path.realpath(__file__)[:-24],'example_dataset')  # root_dir where all dataset has been located 
     save_folder = "OCTImage" # folder to save processed OCT image dataset, under root_dir
     TruncProcess = False # using Bactch processing to trunc data set into small segmentation to be processed 
 
