@@ -75,5 +75,6 @@ Class OCTImagingProcessing also provides several accesses/members to imaging pro
 * *self.DepthProfile*: depth profile (along z-axis) of reconstructed image
 * *self.ShowXZ(OCTData)*: member function to show cross-section. 
 
+Example dataset could be download under the request to email address: linyuechuan1989@gmail.com 
 ## License
 PyOCT is licensed under the terms of the MIT License (see the file LICENSE).# PyOCT
