@@ -84,6 +84,7 @@ def Run_test():
     figCAO = plt.figure(constrained_layout=False,figsize=(10,5))
     #plt.imshow(np.squeeze(np.amax(np.abs(data)**0.4,axis=2)),cmap='gray')
     OCTVoltmp.ShowXZ(np.abs(data),figHandle=figCAO) 
+    figCAO.suptitle("OCT Cross Section after CAO")
 
     figFace = plt.figure(figsize=(4,4))
     dataFace = np.squeeze(np.abs(data[int(Settings['zf']/Settings['zPixSize']),:,:]))
