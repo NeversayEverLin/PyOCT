@@ -24,7 +24,7 @@ If you want to run the latest version of the code, you can install from git:
 After successful installaiton, you can test program under python environment:
 
     $from PyOCT import VolumeReconstruction
-    $VolumeReconstruction 
+    $VolumeReconstruction.Run_test() 
 
 To run the OCT imaging reconstruction, you can construct class OCTImagingProcessing() from PyOCTRecon module:
 
