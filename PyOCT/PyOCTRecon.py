@@ -401,7 +401,7 @@ class OCTImagingProcessing():
         alpha = np.diag(CorrectionVector) 
         return alpha
  
-    def ShowXZ(self,InputData,frame_toshow=0,figTitle = None,figHanle=None): 
+    def ShowXZ(self,InputData,frame_toshow=0,figTitle = None,figHandle=None): 
         """Show 2D image with depth profile, laser spectrum and interference pattern 
         : InputData: 2D numpy array; if InputData is 3D as [Z,X,Y] dim, it will only show its first frame. 
         """
@@ -416,10 +416,10 @@ class OCTImagingProcessing():
         matplotlib.rc('text', usetex=True)
         matplotlib.rcParams['pdf.fonttype'] = 42
         matplotlib.rcParams['ps.fonttype'] = 42
-        if figHanle == None:
+        if figHandle == None:
             figOCTXZ = plt.figure(constrained_layout=False,figsize=(10,5))
         else:
-            figOCTXZ = figHanle 
+            figOCTXZ = figHandle 
         plt.tight_layout(pad=0.0)
         plt.subplots_adjust(wspace=20,hspace=5,left=0.01, right=0.98) # fig.subplots_adjust(left=0.05, bottom=0.05, right=0.98, top=0.98)
         if figTitle:
