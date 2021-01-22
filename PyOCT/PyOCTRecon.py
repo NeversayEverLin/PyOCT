@@ -102,7 +102,10 @@ class OCTImagingProcessing():
             print("\n///////////////////////////////////////////////////\n")
             print("Settings List is:")
             for key in self.Settings.keys():
-                print("{}: {}".format(key, self.Settings[key]))
+                if key == 'depths':
+                    print("{}: {}, {}".format("depths_min_max", np.amin(self.Settings[key]),np.amax(self.Settings[key])))
+                else: 
+                    print("{}: {}".format(key, self.Settings[key]))
             print("End of Configuration")
             print("\n//////////////////////////////////////////////////\n")
 
@@ -509,7 +512,7 @@ class Batch_OCTProcessing():
     Processing OCT data by segmenting data set into sub-frames. You can still access to OCTImagingProcessing() class methods by accessing .OCTRe.Methods() 
 
     """
-    def __init__(self,root_dir, ChunkSize= 128,Ascans=120,Frames=128,SampleData = None, Settings = None, sampleID=None,bkgndID = None,Sample_sub_path = None,Bkgnd_sub_path = None,saveOption=False,saveFolder=None,RorC='real',verbose=True, frames=1,alpha2=None,alpha3=None,depths=np.linspace(1024,2047,1024),gamma = 0.4,wavelegnth = 1300,XYConversion=[660,660],camera_matrix=np.asarray([1.169980E3,1.310930E-1,-3.823410E-6,-7.178150E-10]),start_frame = 1, singlePrecision = True, OptimizingDC=False,ReconstructionMethods='NoCAO',downPrecision=True):
+    def __init__(self,root_dir, ChunkSize= 128,Ascans=120,Frames=128,SampleData = None, Settings = None, sampleID=None,bkgndID = None,Sample_sub_path = None,Bkgnd_sub_path = None,saveOption=False,saveFolder=None,RorC='real',verbose=False, alpha2=None,alpha3=None,depths=np.linspace(1024,2047,1024),gamma = 0.4,wavelegnth = 1300,XYConversion=[660,660],camera_matrix=np.asarray([1.169980E3,1.310930E-1,-3.823410E-6,-7.178150E-10]),start_frame = 1, singlePrecision = True, OptimizingDC=False,ReconstructionMethods='NoCAO',downPrecision=True):
         self.ChunkSize = ChunkSize 
         self.Ascans = Ascans
         self.Frames = Frames 
@@ -517,10 +520,11 @@ class Batch_OCTProcessing():
         self.data = np.zeros((np.size(depths),self.Ascans,self.Frames),dtype=np.complex)
         self.Settings = Settings 
         _time01 = time.time()
-        bar = Bar(' OCT Reconstruction...', max=self.Segments)
+        if verbose:
+            bar = Bar(' OCT Batch Reconstruction...', max=self.Segments)
         for i in range(self.Segments):
-            bar.next()
             if verbose:
+                bar.next()
                 print("")
             self.OCTRe = OCTImagingProcessing(root_dir=root_dir, SampleData=SampleData, Settings=None, sampleID=sampleID,bkgndID=bkgndID,Sample_sub_path=Sample_sub_path,Bkgnd_sub_path=Bkgnd_sub_path,saveOption=saveOption,saveFolder=saveFolder,RorC='complex',verbose=False, frames=self.ChunkSize,alpha2=alpha2,alpha3=alpha3,depths=depths,gamma=gamma,wavelegnth=wavelegnth,XYConversion=XYConversion,camera_matrix=camera_matrix,start_frame=i*self.ChunkSize+1, singlePrecision=singlePrecision, OptimizingDC=False,ReconstructionMethods=ReconstructionMethods)
             if i == 0:
@@ -530,7 +534,7 @@ class Batch_OCTProcessing():
                         print("{}: {}".format(key,self.Settings[key]))
             self.data[:,:,i*self.ChunkSize+np.arange(0,self.ChunkSize,step=1,dtype=np.int)] = np.reshape(self.OCTRe.data,(np.size(self.Settings['depths']),self.Settings['Ascans'],int(np.size(self.OCTRe.data)/(np.size(self.Settings['depths'])*self.Settings['Ascans'])))) 
         if (self.Segments*self.ChunkSize - self.Frames) != 0:
-            diff = int(self.Segments*self.ChunkSize - self.Frames)
+            diff = int(self.Frames-self.Segments*self.ChunkSize)
             if diff < 0:
                 raise ValueError("Segmentation is not Right ! Check ChunkSize!")
             else:
