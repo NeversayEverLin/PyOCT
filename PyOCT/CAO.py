@@ -33,7 +33,7 @@ matplotlib.rcParams['ps.fonttype'] = 42
 #        #print(keys)
 #        Settings[keys] = SettingsFile[keys][()]
 
-def QuadraticFit2d(inData,Settings, verbose=True):
+def QuadraticFit2d(inData,Settings, verbose=False):
         """
         Quadratic 2D fit with coefficients as 
         a0 + a1*x + a2*y + a3*x**2 + a4*x**2*y + a5*x**2*y**2 + a6*y**2 +  a7*x*y**2 + a8*x*y
@@ -55,19 +55,19 @@ def QuadraticFit2d(inData,Settings, verbose=True):
                 print("QuadraticFit2d results:")
                 print("coeff0: {}".format(coeff[0]))
                 print("r : {}".format(r))
+                print("rank: {}".format(rank))
         zxy = coeff[1]*X+coeff[2]*Y+coeff[3]*X**2 + coeff[4]*X**2*Y+coeff[5]*X**2*Y**2+coeff[6]*Y**2+coeff[7]*X*Y**2+coeff[8]*X*Y
         zxy = np.reshape(zxy,(sizeX,sizeY))
-        print("rank: {}".format(rank))
-        #  print("s: {}".format(s)) 
+
         return coeff[0], zxy  
 
 
-def SearchingCoverGlass(inData,Settings,start_index = 5, end_index = 150, verbose = True):
+def SearchingCoverGlass(inData,Settings,start_index = 5, end_index = 150, verbose = False):
         from scipy.signal import find_peaks
         if inData.ndim == 3:
-                tempData = np.squeeze(np.amax(np.amax(np.abs(inData[start_index:end_index,:,:]),axis=1,keepdims=True),axis=2,keepdims=True))
+                tempData = np.squeeze(np.median(np.median(np.abs(inData),axis=1,keepdims=True),axis=2,keepdims=True))
         elif inData.ndim == 2: 
-                tempData = np.squeeze(np.amax(np.abs(inData[start_index:end_index,:]),axis=1,keepdims=True))
+                tempData = np.squeeze(np.median(np.abs(inData),axis=1,keepdims=True))
         elif inData.ndim == 1:
                 tempData = np.abs(inData)
         else:
@@ -80,16 +80,18 @@ def SearchingCoverGlass(inData,Settings,start_index = 5, end_index = 150, verbos
         peaks[1] = int(np.argmax(tempData[mid_index:end_index])+mid_index) 
         if verbose:
                 print("Glass position is {} and {} pixel".format(peaks[0],peaks[1])) 
-        figSG = plt.figure(figsize=(5,4))
-        axSG = plt.subplot2grid((1,1),(0,0))
-        axSG.plot(tempData) 
-        axSG.scatter(peaks[0],tempData[peaks[0]],s=80,facecolors='none', edgecolors='tab:red',linewidths=2,linestyles='dotted')
-        axSG.scatter(peaks[1],tempData[peaks[1]],s=80,facecolors='none', edgecolors='tab:red',linewidths=2,linestyles='dotted')
-        axSG.set_yscale('log') 
+                figSG = plt.figure(figsize=(5,4))
+                figSG.suptitle("Positions of Coverslip")
+                axSG = plt.subplot2grid((1,1),(0,0))
+                axSG.plot(tempData) 
+                axSG.scatter(peaks[0],tempData[peaks[0]],s=80,facecolors='none', edgecolors='tab:red',linewidths=2,linestyles='dotted')
+                axSG.scatter(peaks[1],tempData[peaks[1]],s=80,facecolors='none', edgecolors='tab:red',linewidths=2,linestyles='dotted')
+                axSG.set_yscale('log') 
         Settings['CoverSlip_Positions'] = peaks 
+        Settings["RefGlassPos"] = peaks[1] 
         return peaks, Settings
 
-def PhaseRegistration(inData, Settings, dzc = 5,start_index = 5, end_index = 150):
+def PhaseRegistration(inData, Settings, dzc = 5,start_index = 5, end_index = 150,verbose=False):
         """
         Phase registration w.r.t coverslip phase as mitigation of phase instability 
         Pre-assumption: coverslip is flat and level without any strong scatters around
@@ -98,126 +100,16 @@ def PhaseRegistration(inData, Settings, dzc = 5,start_index = 5, end_index = 150
         : dzc: number of pixels over which the coverglass phase will be averaged based on OCT-intensity weights
         : start_index, end_index: range of index to search position of coverslip which should cover both two flat surface of coverslip
         """
-        print("Phase Registration ...")
+        if verbose:
+                print("Phase Registration ...")
         if "RefGlassPos" not in Settings.keys():  # if not, means not coherence gate curvature removal implemented. Then we just search the position of surf glass        
-                if 'CoverSlip_Positions' not in Settings.keys():
-                        peaks, Settings = SearchingCoverGlass(inData,Settings,start_index = 5, end_index = 150)
-                pos_coverglass = peaks[1] 
-        else:
-                pos_coverglass = Settings["RefGlassPos"]
+                peaks, Settings = SearchingCoverGlass(inData,Settings,start_index = 5, end_index = 150,verbose=verbose)
+
+        pos_coverglass = Settings["RefGlassPos"]
         surface_phi = np.average(inData[pos_coverglass-dzc:pos_coverglass+dzc,:,:],axis=0,weights=np.abs(inData[pos_coverglass-dzc:pos_coverglass+dzc,:,:]))
         surface_phi_2d = np.exp(-1j*np.angle(surface_phi)) #np.conj(surface_phi)
         S = np.multiply(inData,np.repeat(surface_phi_2d[np.newaxis,:,:],np.shape(inData)[0],axis=0))
         return S, Settings    
-
-        
-## S2: Bulk demodulation
-def Gauss(x, amp, cen, wid, bis):
-        return bis  + amp * np.exp(-(x-cen)**2 /wid)
-
-def Gauss2( x, amp1, cen1, wid1, amp2, cen2, wid2):
-    #(c1, mu1, sigma1, c2, mu2, sigma2) = params
-    return amp1 * np.exp( - (x - cen1)**2.0 / (2.0 * wid1**2.0) ) + amp2 * np.exp( - (x - cen2)**2.0 / (2.0 * wid2**2.0) )
-
-def BulkDemodulation(inData, Settings,showFitResults=False,proctype='oce'):
-        """
-        inData must be a full volume OCT image 
-        """
-        from scipy import ndimage  
-        from lmfit import Model
-        [Z,X,Y] = np.shape(inData)
-        tempD = np.fft.fftshift(np.sum(np.abs(np.fft.fftn(np.fft.ifftshift(inData))),axis=0))
-        LineX = ndimage.median_filter(np.squeeze(np.sum(tempD,axis=1)),size=3)#line profile for x-direciton
-        LineY = ndimage.median_filter(np.squeeze(np.sum(tempD,axis=0)),size=3) # line profile for y-direction 
-        x_X = np.arange(0,np.size(LineX),step=1)
-        x_Y = np.arange(0,np.size(LineY),step=1)
-
-        gmodel = Model(Gauss,independent_vars='x',param_names=['amp','cen','wid','bis']) 
-        LineXFit = gmodel.fit(LineX, x=x_X,amp=np.amax(LineX),cen=(X+1)/2, wid=10,bis=np.amin(LineX))
-        LineYFit = gmodel.fit(LineY, x=x_Y,amp=np.amax(LineY),cen=(Y+1)/2, wid=10,bis=np.amin(LineY))
-        if showFitResults:
-               # print("Line X Fit Results are:")
-               # print(LineXFit.fit_report())
-               # print("Line X Fit Results are:")
-               # print(LineYFit.fit_report())
-                figBulkDem = plt.figure(constrained_layout=False,figsize=(5,4)) 
-                plt.subplots_adjust(wspace=0.4,hspace=0.5) 
-                plt.tight_layout()
-                figBulkDem.suptitle("Fit Gaussian along XY in FFT domain",fontsize=8)
-                axFigBulkDem0_res = plt.subplot2grid((3,2),(2,0),rowspan=1,colspan=1)
-                axFigBulkDem0_fit = plt.subplot2grid((3,2),(0,0),rowspan=2,colspan=1,sharex=axFigBulkDem0_res)                
-                axFigBulkDem1_res = plt.subplot2grid((3,2),(2,1),rowspan=1,colspan=1)
-                axFigBulkDem1_fit = plt.subplot2grid((3,2),(0,1),rowspan=2,colspan=1,sharex=axFigBulkDem1_res)
-                
-                LineXFit.plot_fit(ax=axFigBulkDem0_fit)
-                LineXFit.plot_residuals(ax=axFigBulkDem0_res) 
-                dely_LineX = LineXFit.eval_uncertainty(sigma=3)
-                axFigBulkDem0_fit.fill_between(x_X, LineXFit.best_fit-dely_LineX, LineXFit.best_fit+dely_LineX, color="#ABABAB",label='3-$\sigma$ uncertainty band')
-                axFigBulkDem0_fit.legend(fontsize=4)
-                axFigBulkDem0_res.legend(fontsize=4)
-                axFigBulkDem0_res.set_xlabel('X (pixel)',fontsize=10,labelpad=-1)
-                axFigBulkDem0_res.set_ylabel('Residuals',fontsize=10,labelpad=-5)
-                axFigBulkDem0_fit.set_ylabel('Fit Amp',fontsize=10,labelpad=0) 
-                axFigBulkDem0_fit.set_xlabel('')
-                axFigBulkDem0_fit.get_lines()[0].set_markerfacecolor('w')
-                axFigBulkDem0_fit.get_lines()[0].set_markersize(3)
-                axFigBulkDem0_fit.get_lines()[0].set_markeredgecolor('tab:red')
-                axFigBulkDem0_fit.get_lines()[1].set_color('tab:orange')
-                axFigBulkDem0_res.get_lines()[1].set_markerfacecolor('w')
-                axFigBulkDem0_res.get_lines()[1].set_markersize(3)
-                axFigBulkDem0_res.get_lines()[1].set_markeredgecolor('tab:red')
-                axFigBulkDem0_res.get_lines()[0].set_color('tab:orange')
-                plt.setp(axFigBulkDem0_fit.get_xticklabels(), visible=False)
-                plt.setp(axFigBulkDem0_fit.get_yticklabels(), fontsize=8)
-                plt.setp(axFigBulkDem0_res.get_yticklabels(), fontsize=8)
-                plt.setp(axFigBulkDem0_res.get_xticklabels(), fontsize=8)
-                axFigBulkDem0_fit.set_title('')
-                axFigBulkDem0_res.set_title('')
-
-                LineYFit.plot_fit(ax=axFigBulkDem1_fit)
-                LineYFit.plot_residuals(ax=axFigBulkDem1_res) 
-                dely_LineY = LineYFit.eval_uncertainty(sigma=3)
-                axFigBulkDem1_fit.fill_between(x_Y, LineYFit.best_fit-dely_LineY, LineYFit.best_fit+dely_LineY, color="#ABABAB",label='3-$\sigma$ uncertainty band')
-                axFigBulkDem1_fit.legend(fontsize=4)
-                axFigBulkDem1_res.legend(fontsize=4)
-                axFigBulkDem1_res.set_xlabel('X (pixel)',fontsize=10,labelpad=-1)
-                axFigBulkDem1_res.set_ylabel('Residuals',fontsize=10,labelpad=-5)
-                axFigBulkDem1_fit.set_ylabel('Fit Amp',fontsize=10,labelpad=0) 
-                axFigBulkDem1_fit.set_xlabel('')
-                axFigBulkDem1_fit.get_lines()[0].set_markerfacecolor('w')
-                axFigBulkDem1_fit.get_lines()[0].set_markersize(3)
-                axFigBulkDem1_fit.get_lines()[0].set_markeredgecolor('tab:red')
-                axFigBulkDem1_fit.get_lines()[1].set_color('tab:orange')
-                axFigBulkDem1_res.get_lines()[1].set_markerfacecolor('w')
-                axFigBulkDem1_res.get_lines()[1].set_markersize(3)
-                axFigBulkDem1_res.get_lines()[1].set_markeredgecolor('tab:red')
-                axFigBulkDem1_res.get_lines()[0].set_color('tab:orange')
-                plt.setp(axFigBulkDem1_fit.get_xticklabels(), visible=False)
-                plt.setp(axFigBulkDem1_fit.get_yticklabels(), fontsize=8)
-                plt.setp(axFigBulkDem1_res.get_yticklabels(), fontsize=8)
-                plt.setp(axFigBulkDem1_res.get_xticklabels(), fontsize=8)
-                axFigBulkDem1_fit.set_title('')
-                axFigBulkDem1_res.set_title('')              
-        Xpeak = LineXFit.best_values['cen']
-        Ypeak = LineYFit.best_values['cen'] 
-        dx = Settings['xPixSize']
-        dy = Settings['yPixSize']
-        Xshift = (Xpeak - np.floor((X-1)/2)) * (1/(dx*X))
-        Yshift = (Ypeak - np.floor((Y-1)/2)) * (1/(dy*Y))# note the difference between Python and MATLAB when indexing median value
-        x = (2*np.pi)*(1/X)*np.arange(0,X,1)*dx 
-        y = (2*np.pi)*(1/Y)*np.arange(0,Y,1)*dy
-        [xm,ym] = np.asarray(np.meshgrid(x,y))
-        if proctype.lower()=='oce':
-                phase = np.transpose(xm)*Xshift +  np.transpose(ym)*Yshift*0
-        elif proctype.lower() == 'oct':
-                phase = np.transpose(xm)*Xshift +  np.transpose(ym)*Yshift
-        phase = phase - np.mean(phase) 
-        demodulator_2d = np.exp(-1j*phase) 
-        demodulator_3d = np.repeat(demodulator_2d[np.newaxis,:,:],Z,axis=0)
-        Settings['qx_shift'] = Xshift # 1/um in qx domain that is shifted from center 
-        Settings['qy_shift'] = Yshift # 1/um in qy domain that is shifted from center 
-
-        return np.multiply(inData,demodulator_3d), Settings
 
 def ObtainGridMesh(inData,Settings):
         """Find grid mesh coordinates corrsponding to spatial and frequency domain as the same dimension of input data. 
@@ -257,7 +149,7 @@ def ObtainGridMesh(inData,Settings):
 
 
 ## S3: Defocus 
-def SearchingFocalPlane(inData,Settings,start_bias = 50, extend_num_pixels = 240,showFitResults=True):
+def SearchingFocalPlane(inData,Settings,start_bias = 50, extend_num_pixels = 240,start_index = 5, end_index = 150,showFitResults=False,smethod="per"):
         """
         Search focal plane by fitting Guassian profile 
         Initially it will search from the position start_bias pixels from coverslip and extend extend_num_pixels pixels
@@ -276,72 +168,40 @@ def SearchingFocalPlane(inData,Settings,start_bias = 50, extend_num_pixels = 240
         #peaks = Settings['CoverSlip_Positions']
         #pos_cover = peaks[1] 
         if "RefGlassPos" not in Settings.keys():  # if not, means not coherence gate curvature removal implemented. Then we just search the position of surf glass        
-                if 'CoverSlip_Positions' not in Settings.keys():
-                        peaks, Settings = SearchingCoverGlass(inData,Settings,start_index = 5, end_index = 150)
-                pos_cover = peaks[1] 
-        else:
-                pos_cover = Settings["RefGlassPos"]
-        
+                _, Settings = SearchingCoverGlass(inData,Settings,start_index = start_index, end_index = end_index)
+  
+        pos_cover = Settings["RefGlassPos"]
         # method II using quadratic fit
-        zf, _  = QuadraticFit2d(inData[(pos_cover+start_bias):(pos_cover+start_bias+extend_num_pixels),:,:],Settings,verbose=showFitResults)  
-        zf = int(zf + pos_cover+ start_bias) # now this will serve as the reference position of cover glass 
-        print("Focal position found at {} pixel".format(zf)) 
-        zf = zf*Settings['zPixSize']
-        """
-        # method I using Gaussian fit 
-        tmpData = np.squeeze(np.amax(np.amax(np.abs(inData[(pos_cover+start_bias):(pos_cover+start_bias+extend_num_pixels),:,:]),axis=1,keepdims=True),axis=2,keepdims=True))
-        tmpData = np.log10(tmpData)
-        tmpData = ndimage.median_filter(tmpData,size=3)
-        init_cen = np.argmax(tmpData)
-        x_z = np.arange(pos_cover+start_bias,pos_cover+start_bias+np.size(tmpData),step=1)
-        # 1 Gaussian fit 
-        gmodel = Model(Gauss,independent_vars='x',param_names=['amp','cen','wid','bis']) 
-        LineZFit = gmodel.fit(tmpData, x=x_z,amp=0.5*np.amax(tmpData),cen=x_z[init_cen], wid=40,bis=np.amin(tmpData))
+        if smethod.lower()=='2dfit':
+                zf, _  = QuadraticFit2d((inData[(pos_cover+start_bias):(pos_cover+start_bias+extend_num_pixels),:,:])**0.4,Settings,verbose=showFitResults)  
+                zf = int(zf + pos_cover+ start_bias) # now this will serve as the reference position of cover glass 
+        elif smethod.lower()=='max':
+                zf = int(np.argmax(np.squeeze(np.amax(np.amax(np.abs(inData[(pos_cover+start_bias):(pos_cover+start_bias+extend_num_pixels),:,:]),axis=1,keepdims=True),axis=2,keepdims=2))))
+                zf = int(zf + pos_cover+ start_bias) 
+        elif smethod.lower() == 'per':
+                tmp = np.sort(np.reshape(np.abs(inData),(Z,X*Y)),axis=1) #np.sort(np.abs(inData.flatten()))
+                sizeTmp = X*Y
+                zprofile = np.squeeze(np.median(tmp[(pos_cover+start_bias):(pos_cover+start_bias+extend_num_pixels),int(sizeTmp*0.996):int(sizeTmp*0.999)],axis=1)) 
+                zf = int(np.argmax(zprofile))
+                zf = int(zf + pos_cover+ start_bias) 
         if showFitResults:
-                figFP = plt.figure(constrained_layout=False,figsize=(4,3)) 
-                #plt.subplots_adjust(wspace=0.4,hspace=0.5) 
-                plt.tight_layout()
-                figFP.suptitle("Fit Focal plane",fontsize=8)
-                axFigFP_res = plt.subplot2grid((3,1),(2,0),rowspan=1,colspan=1)
-                axFigFP_fit = plt.subplot2grid((3,1),(0,0),rowspan=2,colspan=1,sharex=axFigFP_res)                
-                
-                LineZFit.plot_fit(ax=axFigFP_fit)
-                LineZFit.plot_residuals(ax=axFigFP_res) 
-                dely_LineZ = LineZFit.eval_uncertainty(sigma=3)
-                axFigFP_fit.fill_between(x_z, LineZFit.best_fit-dely_LineZ, LineZFit.best_fit+dely_LineZ, color="#ABABAB",label='3-$\sigma$ uncertainty band')
-                axFigFP_fit.legend(fontsize=4)
-                axFigFP_res.legend(fontsize=4)
-                axFigFP_res.set_xlabel('X (pixel)',fontsize=10,labelpad=-1)
-                axFigFP_res.set_ylabel('Residuals',fontsize=10,labelpad=-5)
-                axFigFP_fit.set_ylabel('Fit Amp',fontsize=10,labelpad=0) 
-                axFigFP_fit.set_xlabel('')
-                axFigFP_fit.get_lines()[0].set_markerfacecolor('w')
-                axFigFP_fit.get_lines()[0].set_markersize(3)
-                axFigFP_fit.get_lines()[0].set_markeredgecolor('tab:red')
-                axFigFP_fit.get_lines()[1].set_color('tab:orange')
-                axFigFP_res.get_lines()[1].set_markerfacecolor('w')
-                axFigFP_res.get_lines()[1].set_markersize(3)
-                axFigFP_res.get_lines()[1].set_markeredgecolor('tab:red')
-                axFigFP_res.get_lines()[0].set_color('tab:orange')
-                plt.setp(axFigFP_fit.get_xticklabels(), visible=False)
-                plt.setp(axFigFP_fit.get_yticklabels(), fontsize=8)
-                plt.setp(axFigFP_res.get_yticklabels(), fontsize=8)
-                plt.setp(axFigFP_res.get_xticklabels(), fontsize=8)
-                axFigFP_fit.set_title('')
-                axFigFP_res.set_title('')
-        zf = (LineZFit.best_values['cen']) *Settings['zPixSize'] # in um
-        print(" Focal plane position is at {} pixel".format(int(LineZFit.best_values['cen'])))
-        """
+                print("Focal position found at {} pixel".format(zf)) 
+        res_zf = zf # in pixel 
+        zf = zf*Settings['zPixSize'] #in um         
         Settings['zf'] = zf # in um
-        return zf, Settings
+        return res_zf, Settings
 
 
-def ViolentDefocus(inData,Settings,showFitResults=False,proctype='oce'):
-        print("Defocusing...")
-        # searching focal plane 
+def ViolentDefocus(inData,Settings,showFitResults=False,proctype='oce',verbose=False,start_bias = 50, extend_num_pixels = 240):
+        if verbose:
+                print("Defocusing...")
+        # searching focal plane, regardless zf is known or not  
         if 'zf' not in Settings.keys():
-                _,Settings = SearchingFocalPlane(inData, Settings,showFitResults=showFitResults) 
+                zfpos,Settings = SearchingFocalPlane(inData, Settings,showFitResults=showFitResults,start_bias = start_bias, extend_num_pixels = extend_num_pixels) 
+        #zfpos = int(Settings['zf']/Settings['zPixSize'])
         zf = Settings['zf']
+        if verbose:
+                print("Defocus will happen at {} pixel".format(zfpos))
 
         [Z,X,Y] = np.shape(inData)
         k_m = Settings['k'] * 1e9 # here k is in the unit of 1/nm, convert to 1/m
@@ -375,18 +235,35 @@ def ViolentDefocus(inData,Settings,showFitResults=False,proctype='oce'):
         return output, Settings
 
 
-def CoherenceGateRemove(inData,Settings,verbose=True,proctype='OCE'):
+def CoherenceGateRemove(inData,Settings,proctype='OCE',verbose=False,start_index = 5, end_index = 150):
         """
         Coherence gate curvature removal
+        zxy0: fitted estimated tilt/curvature from first time-lapse volume 
+        zc0: reference glass position in units of pixels 
         """
-        if 'CoverSlip_Positions' not in Settings.keys():
-                _, Settings = SearchingCoverGlass(inData,Settings,start_index = 5, end_index = 150)
-        peaks = Settings['CoverSlip_Positions']
-        pos_cover = peaks[1]  
-        zc0, zxy = QuadraticFit2d(inData[pos_cover-20:pos_cover+20,:,:],Settings,verbose=verbose)  
-        zc0 = int(zc0 + pos_cover-20) # now this will serve as the reference position of cover glass 
-        print("Reference Coverglass position now will be always at {} pixel".format(zc0)) 
-        Settings["RefGlassPos"] = zc0 
+        if 'RefGlassPos' not in Settings.keys():
+                _, Settings = SearchingCoverGlass(inData,Settings,start_index = start_index, end_index = end_index)
+        pos_cover = Settings['RefGlassPos']
+
+        if 'CoherenceGateCoeffMat' not in Settings.keys(): 
+                #_, Settings = SearchingCoverGlass(inData,Settings,start_index = start_index, end_index = end_index)
+                #pos_cover = Settings['RefGlassPos']
+                zc0, zxy0 = QuadraticFit2d(inData[pos_cover-20:pos_cover+20,:,:],Settings,verbose=verbose)  
+                zc0 = int(zc0 + pos_cover-20) # now this will serve as the reference position of cover glass 
+                Settings['RefGlassPosCoeff'] = zc0 
+                Settings['CoherenceGateCoeffMat'] = zxy0 
+                zct = zc0 
+        else:
+                zc0 = Settings['RefGlassPosCoeff']
+                zxy0 = Settings['CoherenceGateCoeffMat']
+               # pos_cover, _ = SearchingCoverGlass(inData,Settings,start_index = start_index, end_index = end_index)
+                zct, _ = QuadraticFit2d(inData[pos_cover-20:pos_cover+20,:,:],Settings,verbose=verbose)  
+                zct = int(zct + pos_cover-20) # now this will serve as the reference position of cover glass  
+        if verbose:
+                print("Reference Coverglass position now will be always at {} pixel".format(zc0)) 
+        
+        #using the same coefficient from first image at a time lapsed images to make sure consistent correction  
+
         [Z,X,Y] = np.shape(inData)
         k_m = Settings['k'] * 1e9 # here k is in the unit of 1/nm, convert to 1/m
         N = np.size(k_m) 
@@ -400,9 +277,136 @@ def CoherenceGateRemove(inData,Settings,verbose=True,proctype='OCE'):
         elif proctype.lower() == 'oct':
                 qym = Settings['qym']
         qr = np.fft.ifftshift(np.sqrt(qxm**2+qym**2)) #optimize out fftshift
-        qz = np.sqrt((2*Settings['refractive_index']*kc)**2-qr**2)
+        aperture = (qr <= 2*Settings['refractive_index']*kc)
+        #aperture = np.ones(np.shape(qr))
+        #defocus kernel         
+        qz = np.sqrt(np.multiply(aperture,(2*Settings['refractive_index']*kc)**2-qr**2)) #np.sqrt((2*Settings['refractive_index']*kc)**2-qr**2)
         inData = np.fft.fft(inData,axis=0) 
         for i in range(np.shape(inData)[0]):
-                inData[i,:,:] = inData[i,:,:] * np.exp(1j*qz*zxy)         
-        return np.fft.ifft(inData,axis=0), Settings
+                inData[i,:,:] = inData[i,:,:] * np.exp(1j*qz*(zxy0+(zct-zc0)))         
+        inData = np.fft.ifft(inData,axis=0) 
+        _, Settings = SearchingCoverGlass(inData,Settings,start_index = start_index, end_index = end_index)
+        return inData, Settings
 
+def FocalPlaneRegistration(inData,Settings,proctype='OCT',showFitResults=False,start_bias = 50, extend_num_pixels = 240,verbose=False):
+        if 'zf' not in Settings.keys():
+                _,Settings = SearchingFocalPlane(inData, Settings,showFitResults=showFitResults,start_bias = start_bias, extend_num_pixels = extend_num_pixels) 
+        zfpos = int(Settings['zf']/Settings['zPixSize'])
+        if 'FocalPlaneCorrMat' not in Settings.keys():
+                _, zf0 = QuadraticFit2d(inData[zfpos-40:zfpos+40,:,:],Settings,verbose=verbose)  
+                Settings['FocalPlaneCorrMat'] = zf0
+        else:
+               # b0 = Settings['b0']
+                zf0 = Settings['FocalPlaneCorrMat']  
+        [Z,X,Y] = np.shape(inData)
+        k_m = Settings['k'] * 1e9 # here k is in the unit of 1/nm, convert to 1/m
+        N = np.size(k_m) 
+        kc = np. mean(k_m) 
+        dz = Settings['zPixSize']*1e-6 
+        if 'qxm' not in Settings.keys(): 
+                Settings = ObtainGridMesh(inData,Settings)
+        qxm = Settings['qxm']
+        if proctype.lower() == 'oce':
+                qym = Settings['qym']*0 
+        elif proctype.lower() == 'oct':
+                qym = Settings['qym']
+        qr = np.fft.ifftshift(np.sqrt(qxm**2+qym**2)) #optimize out fftshift
+        aperture = (qr <= 2*Settings['refractive_index']*kc)
+        #aperture = np.ones(np.shape(qr))
+        #defocus kernel         
+        qz = np.sqrt(np.multiply(aperture,(2*Settings['refractive_index']*kc)**2-qr**2)) #np.sqrt((2*Settings['refractive_index']*kc)**2-qr**2)
+        inData = np.fft.fft(inData,axis=0) 
+        for i in range(np.shape(inData)[0]):
+                inData[i,:,:] = inData[i,:,:] * np.exp(1j*qz*zf0)   
+        inData = np.fft.ifft(inData,axis=0)      
+        _,Settings = SearchingFocalPlane(inData, Settings,showFitResults=showFitResults,start_bias = start_bias, extend_num_pixels = extend_num_pixels) 
+        return inData, Settings
+
+
+
+## S2: Bulk demodulation
+def Gauss(x, amp, cen, wid, bis):
+        return bis  + amp * np.exp(-(x-cen)**2 /wid)
+
+def Gauss2( x, amp1, cen1, wid1, amp2, cen2, wid2):
+    #(c1, mu1, sigma1, c2, mu2, sigma2) = params
+    return amp1 * np.exp( - (x - cen1)**2.0 / (2.0 * wid1**2.0) ) + amp2 * np.exp( - (x - cen2)**2.0 / (2.0 * wid2**2.0) )
+
+def BulkDemodulation(inData, Settings,showFitResults=False,proctype='oct'):
+        """
+        inData must be a full volume OCT image 
+        : TODO: best practice is to exclude the glass regions. The all-bright of glass/coverslip will distort the results. 
+        """
+        tmp = np.abs(np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(inData))))
+        lineX = np.squeeze(np.sum(tmp,axis=(0,2))) 
+        lineY = np.squeeze(np.sum(tmp,axis=(0,1))) 
+        lineX = ndimage.median_filter(lineX,size=3) 
+        lineY = ndimage.median_filter(lineY,size=3) 
+        Xpeak_init = np.argmax(lineX) 
+        Ypeak_init = np.argmax(lineY) 
+        lineX = np.reshape(lineX,(np.size(lineX),1))
+        lineY = np.reshape(lineY,(np.size(lineY),1)) #N*1 
+        # find peak of FFT magnitude profile along X and Y 
+        bound = 100 
+        basis = np.arange(-100,100,step=1,dtype=int) 
+        basis = np.reshape(basis,(np.size(basis),1)) 
+        fitter = np.linalg.pinv(np.concatenate((basis**0,basis**1,basis**2),axis=1)) 
+        xfit = np.squeeze(np.matmul(fitter,lineX[Xpeak_init+np.squeeze(basis),:]))
+        yfit = np.squeeze(np.matmul(fitter,lineY[Ypeak_init+np.squeeze(basis),:])) 
+        Xpeak = Xpeak_init - (0.5*xfit[1]/xfit[2])
+        Ypeak = Ypeak_init - (0.5*yfit[1]/yfit[2]) 
+        
+        if showFitResults:
+                fig, ax = plt.subplots(nrows=2,ncols=2)
+                ax[0,0].imshow(np.amax(tmp,axis=0)**0.4)
+                ax[0,1].plot(basis,lineX[Xpeak_init+np.squeeze(basis),:],color="red") 
+                ax[1,0].plot(basis,lineY[Ypeak_init+np.squeeze(basis),:],color="red")
+                ax[0,1].plot(basis,xfit,"g--") 
+                ax[1,0].plot(basis,yfit,"g--") 
+                ax[0,1].scatter(Xpeak,np.amax(xfit),s=50)
+                ax[1,0].scatter(Ypeak,np.amax(yfit),s=50) 
+                print("Xpeak is {}".format(Xpeak))
+                print("Ypeak is {}".format(Ypeak))
+
+        # demodulation 
+        if 'xm' not in Settings.keys():
+                Settings = ObtainGridMesh(inData,Settings) 
+        xm = Settings['xm']/Settings['xPixSize']
+        ym = Settings['ym']/Settings['yPixSize'] 
+        [Z,X,Y] = np.shape(inData) 
+        if proctype.lower() == 'oct':
+                Xshift = Xpeak - (np.floor(X/2)+1)
+                Yshift = Ypeak - (np.floor(Y/2)+1) 
+        elif proctype.lower() == 'oce':
+                Xshift = Xpeak - (np.floor(X/2)+1)
+                Yshift = 0 
+        else:
+                raise ValueError("proctype can only be either oct or oce!")
+        phase = 2*np.pi*(Xshift*xm + Yshift*ym)
+        phase = phase - np.mean(phase) 
+        demodulator = np.exp(-1j*phase) 
+        for i in range(Z):
+                inData[i,:,:] = inData[i,:,:] * demodulator       
+
+        return inData, Settings
+
+def FullCAO(inData,Settings,verbose=False,proctype='oct',start_index=5,end_index=200,start_bias=100,extend_num_pixels=150,singlePrecision=False):
+        """
+        Conduct full imaging reconstruction processing with: coherence gate curvature removal, focal plane registartion, phase registration, bulk demodulation and computation adapative optics
+        inData: basic reconstructed OCT image data. complex and as dim [z,x,y]
+        Settings: parameters 
+        start_indx, end_index: position ranges to search for cover glass positions along z direction 
+        start_bias, extend_num_pixels: start_bias+ref_glass_pos:start_bias+ref_glass_pos+extend_num_pixels as the range to serach focal plane 
+        return:
+        inData, Settings. 
+        """
+        inData, Settings = CoherenceGateRemove(inData,Settings,verbose=verbose,proctype=proctype,start_index = start_index, end_index = end_index)
+        inData, Settings = FocalPlaneRegistration(inData,Settings,proctype=proctype)
+        inData, Settings = PhaseRegistration(inData,Settings)
+        inData, Settings = BulkDemodulation(inData,Settings,showFitResults=verbose) 
+        inData, Settings = ViolentDefocus(inData,Settings,showFitResults=verbose,proctype=proctype,start_bias = start_bias, extend_num_pixels = extend_num_pixels)
+        if singlePrecision:
+                inData = np.abs(inData)
+                inData = inData.astype(np.float32) 
+
+        return inData, Settings
