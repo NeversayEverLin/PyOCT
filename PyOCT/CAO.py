@@ -332,12 +332,17 @@ def Gauss2( x, amp1, cen1, wid1, amp2, cen2, wid2):
     #(c1, mu1, sigma1, c2, mu2, sigma2) = params
     return amp1 * np.exp( - (x - cen1)**2.0 / (2.0 * wid1**2.0) ) + amp2 * np.exp( - (x - cen2)**2.0 / (2.0 * wid2**2.0) )
 
-def BulkDemodulation(inData, Settings,showFitResults=False,proctype='oct'):
+def BulkDemodulation(inData, Settings,showFitResults=False,proctype='oct',excludeGlass=True):
         """
         inData must be a full volume OCT image 
-        : TODO: best practice is to exclude the glass regions. The all-bright of glass/coverslip will distort the results. 
+        : best practice is to exclude the glass regions. The all-bright of glass/coverslip will distort the results. 
         """
-        tmp = np.abs(np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(inData))))
+        if excludeGlass:
+                pos_cover = Settings["RefGlassPos"] 
+                tmp = np.abs(np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(inData[(pos_cover+10):-1,:,:]))))
+        else:
+                tmp = np.abs(np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(inData))))
+
         lineX = np.squeeze(np.sum(tmp,axis=(0,2))) 
         lineY = np.squeeze(np.sum(tmp,axis=(0,1))) 
         lineX = ndimage.median_filter(lineX,size=3) 
@@ -361,10 +366,10 @@ def BulkDemodulation(inData, Settings,showFitResults=False,proctype='oct'):
                 ax[0,0].imshow(np.amax(tmp,axis=0)**0.4)
                 ax[0,1].plot(basis,lineX[Xpeak_init+np.squeeze(basis),:],color="red") 
                 ax[1,0].plot(basis,lineY[Ypeak_init+np.squeeze(basis),:],color="red")
-                ax[0,1].plot(basis,xfit,"g--") 
-                ax[1,0].plot(basis,yfit,"g--") 
-                ax[0,1].scatter(Xpeak,np.amax(xfit),s=50)
-                ax[1,0].scatter(Ypeak,np.amax(yfit),s=50) 
+                #ax[0,1].plot(basis,xfit,"g--") 
+                #ax[1,0].plot(basis,yfit,"g--") 
+               # ax[0,1].scatter(Xpeak,np.amax(xfit),s=50)
+               # ax[1,0].scatter(Ypeak,np.amax(yfit),s=50) 
                 print("Xpeak is {}".format(Xpeak))
                 print("Ypeak is {}".format(Ypeak))
 
@@ -390,13 +395,14 @@ def BulkDemodulation(inData, Settings,showFitResults=False,proctype='oct'):
 
         return inData, Settings
 
-def FullCAO(inData,Settings,verbose=False,proctype='oct',start_index=5,end_index=200,start_bias=100,extend_num_pixels=150,singlePrecision=False):
+def FullCAO(inData,Settings,verbose=False,proctype='oct',start_index=5,end_index=200,start_bias=100,extend_num_pixels=150,singlePrecision=False,excludeGlass=True):
         """
         Conduct full imaging reconstruction processing with: coherence gate curvature removal, focal plane registartion, phase registration, bulk demodulation and computation adapative optics
         inData: basic reconstructed OCT image data. complex and as dim [z,x,y]
         Settings: parameters 
         start_indx, end_index: position ranges to search for cover glass positions along z direction 
         start_bias, extend_num_pixels: start_bias+ref_glass_pos:start_bias+ref_glass_pos+extend_num_pixels as the range to serach focal plane 
+        excludeGlass=True: exclude galss regions for bulk modulation calculation; strong signal over FOV from glass regions might distort the bulk demodulation. 
         return:
         inData, Settings. 
         """
