@@ -409,7 +409,7 @@ def FullCAO(inData,Settings,verbose=False,proctype='oct',start_index=5,end_index
         inData, Settings = CoherenceGateRemove(inData,Settings,verbose=verbose,proctype=proctype,start_index = start_index, end_index = end_index)
         inData, Settings = FocalPlaneRegistration(inData,Settings,proctype=proctype)
         inData, Settings = PhaseRegistration(inData,Settings)
-        inData, Settings = BulkDemodulation(inData,Settings,showFitResults=verbose) 
+        inData, Settings = BulkDemodulation(inData,Settings,showFitResults=verbose,excludeGlass=excludeGlass) 
         inData, Settings = ViolentDefocus(inData,Settings,showFitResults=verbose,proctype=proctype,start_bias = start_bias, extend_num_pixels = extend_num_pixels)
         if singlePrecision:
                 inData = np.abs(inData)
